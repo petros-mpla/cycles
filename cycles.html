@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Period Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --dark-bg: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --pink: #ff69b4;
+            --text: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        #app {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .profile {
+            background: var(--card-bg);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .delete-btn {
+            background: #ff4444 !important;
+            padding: 5px 10px !important;
+            font-size: 0.8em;
+            border-radius: 15px;
+        }
+
+        button {
+            background: var(--pink);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.3s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        input {
+            background: var(--card-bg);
+            color: var(--text);
+            border: 2px solid var(--pink);
+            padding: 10px;
+            border-radius: 25px;
+            width: 200px;
+            margin: 5px;
+        }
+
+        #predictions {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--card-bg);
+            border-radius: 10px;
+        }
+
+        h1, h2 {
+            color: var(--pink);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="profileScreen">
+            <h1>Προφίλ Περιόδων</h1>
+            <input id="profileName" placeholder="Όνομα Προφίλ">
+            <button onclick="saveProfile()">Δημιουργία Προφίλ</button>
+            <div id="profilesList"></div>
+        </div>
+
+        <div id="calendarScreen" style="display: none;">
+            <h2 id="currentProfileName"></h2>
+            <button onclick="showProfileScreen()">Πίσω</button>
+            <div>
+                <label>Τελευταία Περίοδος: </label>
+                <input type="date" id="lastPeriodDate" onchange="updateProfile()">
+            </div>
+            <div>
+                <label>Διάρκεια Κύκλου (ημέρες): </label>
+                <input type="number" id="cycleLength" onchange="updateProfile()">
+            </div>
+            <div>
+                <label>Διάρκεια Περιόδου (ημέρες): </label>
+                <input type="number" id="periodLength" onchange="updateProfile()">
+            </div>
+            <div id="predictions"></div>
+            <div class="chart-container">
+                <canvas id="cycleChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let profiles = JSON.parse(localStorage.getItem('profiles') || '[]');
+        let selectedProfile = null;
+        let cycleChart = null;
+
+        window.onload = updateProfilesList;
+
+        function saveProfile() {
+            const name = document.getElementById('profileName').value;
+            if (!name) return;
+
+            const newProfile = {
+                id: Date.now(),
+                name: name,
+                lastPeriod: new Date().toISOString().split('T')[0],
+                cycleLength: 28,
+                periodLength: 5
+            };
+
+            profiles.push(newProfile);
+            localStorage.setItem('profiles', JSON.stringify(profiles));
+            document.getElementById('profileName').value = '';
+            updateProfilesList();
+        }
+
+        function updateProfilesList() {
+            const list = document.getElementById('profilesList');
+            list.innerHTML = profiles.map(profile => `
+                <div class="profile" onclick="showCalendar(${profile.id})">
+                    ${profile.name}
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteProfile(${profile.id})">Διαγραφή</button>
+                </div>
+            `).join('');
+        }
+
+        function deleteProfile(profileId) {
+            if (!confirm("Είσαι σίγουρος ότι θέλεις να διαγράψεις αυτό το προφίλ;")) return;
+            profiles = profiles.filter(p => p.id !== profileId);
+            localStorage.setItem('profiles', JSON.stringify(profiles));
+            updateProfilesList();
+        }
+
+        function showCalendar(profileId) {
+            selectedProfile = profiles.find(p => p.id === profileId);
+            document.getElementById('profileScreen').style.display = 'none';
+            document.getElementById('calendarScreen').style.display = 'block';
+            document.getElementById('currentProfileName').textContent = selectedProfile.name;
+            document.getElementById('lastPeriodDate').value = selectedProfile.lastPeriod;
+            document.getElementById('cycleLength').value = selectedProfile.cycleLength;
+            document.getElementById('periodLength').value = selectedProfile.periodLength;
+            updatePredictions();
+        }
+
+        function updateProfile() {
+            selectedProfile.lastPeriod = document.getElementById('lastPeriodDate').value;
+            selectedProfile.cycleLength = parseInt(document.getElementById('cycleLength').value);
+            selectedProfile.periodLength = parseInt(document.getElementById('periodLength').value);
+            localStorage.setItem('profiles', JSON.stringify(profiles));
+            updatePredictions();
+        }
+
+        function updatePredictions() {
+            const lastPeriodDate = new Date(selectedProfile.lastPeriod);
+            const cycleLength = selectedProfile.cycleLength;
+            const periodLength = selectedProfile.periodLength;
+
+            // Υπολογισμοί
+            const nextPeriodStart = new Date(lastPeriodDate);
+            nextPeriodStart.setDate(lastPeriodDate.getDate() + cycleLength);
+            
+            const nextPeriodEnd = new Date(nextPeriodStart);
+            nextPeriodEnd.setDate(nextPeriodStart.getDate() + (periodLength - 1));
+            
+            const ovulationDate = new Date(nextPeriodStart);
+            ovulationDate.setDate(nextPeriodStart.getDate() - 14);
+
+            // Γράφημα
+            createCycleChart(lastPeriodDate, cycleLength, periodLength);
+
+            // Προβλέψεις
+            const options = { day: 'numeric', month: 'short', year: 'numeric' };
+            document.getElementById('predictions').innerHTML = `
+                <p>Επόμενη Περίοδος: <strong>${nextPeriodStart.toLocaleDateString('el-GR', options)} - ${nextPeriodEnd.toLocaleDateString('el-GR', options)}</strong></p>
+                <p>Ωορρηξία: <strong>${ovulationDate.toLocaleDateString('el-GR', options)}</strong></p>
+            `;
+        }
+
+        function createCycleChart(lastPeriodDate, cycleLength, periodLength) {
+            const ctx = document.getElementById('cycleChart').getContext('2d');
+            
+            if (cycleChart) cycleChart.destroy();
+
+            const phases = {
+                period: periodLength,
+                follicular: 14 - periodLength,
+                ovulation: 1,
+                luteal: cycleLength - 14 - 1
+            };
+
+            cycleChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Περίοδος', 'Προεωορρηξιακή', 'Ωορρηξία', 'Μετεωρηματική'],
+                    datasets: [{
+                        data: [phases.period, phases.follicular, phases.ovulation, phases.luteal],
+                        backgroundColor: ['#ff1493', '#87cefa', '#9400d3', '#ffb6c1']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { color: '#ffffff' }
+                        },
+                        title: { 
+                            display: true,
+                            text: 'Φάσεις Κύκλου',
+                            color: '#ffffff'
+                        }
+                    }
+                }
+            });
+        }
+
+        function showProfileScreen() {
+            document.getElementById('profileScreen').style.display = 'block';
+            document.getElementById('calendarScreen').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
